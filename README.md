@@ -42,6 +42,49 @@ czas karty" trzyma go w `sessionStorage` (znika po zamknięciu karty).
 Przyciski „Pobierz kopię JSON" i „Wczytaj plik" zostały jako zapasowa opcja
 ręczna, gdyby publikacja przez API była z jakiegoś powodu niedostępna.
 
+## 4. Rezerwacja miejsc (Firebase)
+
+Rezerwacja miejsc jest współdzielona dla wszystkich odwiedzających (żeby dwie
+osoby nie mogły zająć tego samego miejsca), więc wymaga darmowej bazy danych
+**Firebase Firestore**:
+
+1. Wejdź na `console.firebase.google.com` i utwórz nowy projekt (bez karty płatniczej — wystarczy plan darmowy „Spark”).
+2. W menu po lewej: **Build → Firestore Database → Create database** (tryb produkcyjny, dowolny region).
+3. **Build → Authentication → Sign-in method → Anonymous → Enable** (strona loguje każdego odwiedzającego anonimowo, żeby reguły mogły rozróżnić „zalogowanego" gościa od bota).
+4. **Project settings (ikona zębatki) → Your apps → Web (`</>`)** — zarejestruj aplikację i skopiuj obiekt `firebaseConfig`.
+5. Wklej te wartości do pliku `firebase-config.js` w repozytorium (podmień plik przez „Edit" na GitHub, tak jak inne pliki).
+6. W **Firestore Database → Rules** wklej poniższe reguły i kliknij „Publish":
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /events/{eventId}/seats/{seatId} {
+         allow read: if true;
+         allow create: if request.auth != null
+           && !exists(/databases/$(database)/documents/events/$(eventId)/seats/$(seatId));
+         allow update, delete: if false;
+       }
+     }
+   }
+   ```
+
+   Te reguły pozwalają każdemu czytać zajęte miejsca, ale zapisać (zarezerwować)
+   może tylko zalogowany (choćby anonimowo) odwiedzający, i tylko jeśli miejsce
+   jest jeszcze wolne — więc dwie osoby nie zajmą tego samego miejsca.
+
+7. W panelu `admin.html`, przy edycji wydarzenia, zaznacz „włącz rezerwację miejsc" i uzupełnij rzędy, liczbę miejsc w rzędzie, rzędy VIP oraz ceny.
+8. Na stronie głównej przy wydarzeniu pojawi się przycisk „Zarezerwuj miejsca", prowadzący do `rezerwacja.html?event=<id>`.
+
+Odwołanie rezerwacji (np. gdy ktoś zrezygnuje) nie ma na razie przycisku w
+panelu — reguły celowo blokują `update`/`delete`, żeby nikt z zewnątrz nie mógł
+zwolnić cudzego miejsca. Zwolnienie miejsca można zrobić ręcznie, usuwając
+odpowiedni dokument w **Firestore Database → Data** w konsoli Firebase.
+
+Płatności w tej wersji nie są podłączone — formularz rezerwacji zbiera tylko
+imię i e-mail. Realne pobieranie opłat (np. przez Stripe Payment Links) można
+dodać w kolejnym kroku bez zmiany reszty architektury — daj znać, jeśli chcesz, żebym to przygotował.
+
 ## Uwagi bezpieczeństwa
 - Token ogranicz do jednego repozytorium i tylko do uprawnienia Contents — tak, żeby w razie wycieku szkoda była jak najmniejsza.
 - Nie udostępniaj linku do `admin.html` publicznie — każdy, kto go otworzy i wklei swój token z dostępem do repo, będzie mógł publikować zmiany.

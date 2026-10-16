@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Afisz — rezerwacja miejsc</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <p class="eyebrow"><a href="index.html">← Afisz</a></p>
+    <h1 id="evTitle">Wczytywanie…</h1>
+    <p class="lede" id="evMeta"></p>
+  </header>
+
+  <section id="seatSection" style="display:none;">
+    <h2>Wybierz miejsce</h2>
+    <p class="sub" id="seatHint">Zajęte miejsca blokują się na żywo dla wszystkich odwiedzających.</p>
+    <div class="stage">SCENA</div>
+    <div class="rows" id="rows"></div>
+    <div class="legend">
+      <span><i class="dot"></i> wolne</span>
+      <span><i class="dot vip"></i> VIP</span>
+      <span><i class="dot sel"></i> wybrane</span>
+      <span><i class="dot taken"></i> zajęte</span>
+    </div>
+  </section>
+
+  <section id="noSeating" style="display:none;">
+    <p class="empty">To wydarzenie nie ma włączonej rezerwacji miejsc.</p>
+  </section>
+
+  <section id="loadErr" style="display:none;">
+    <p class="empty" id="loadErrMsg"></p>
+  </section>
+</div>
+
+<div class="bar" id="bar" style="display:none;">
+  <div class="bar-info" id="barInfo">Wybierz miejsca, aby kontynuować</div>
+  <button class="btn" id="openConfirm" disabled>Zarezerwuj</button>
+</div>
+
+<div class="overlay" id="confirmOverlay">
+  <div class="panel">
+    <p class="eyebrow">Potwierdzenie</p>
+    <h2 style="font-size:24px;">Dane do rezerwacji</h2>
+    <p class="sub" id="confirmSummary"></p>
+    <form id="confirmForm">
+      <div class="field"><label>Imię i nazwisko</label><input required id="fName"></div>
+      <div class="field"><label>E-mail</label><input required type="email" id="fEmail"></div>
+      <div class="err" id="confirmErr"></div>
+      <div class="admin-card-actions">
+        <button type="button" class="btn ghost" id="cancelConfirm">Anuluj</button>
+        <button type="submit" class="btn" id="submitConfirm">Potwierdź rezerwację</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="doneOverlay">
+  <div class="panel">
+    <p class="eyebrow">Gotowe</p>
+    <h2 style="font-size:24px;">Miejsca zarezerwowane</h2>
+    <div class="seatlist" id="doneSeats"></div>
+    <p class="sub">Potwierdzenie wysłaliśmy na podany adres e-mail (jeśli strona ma skonfigurowaną wysyłkę — w wersji podstawowej to jedynie informacja na ekranie).</p>
+    <button class="btn" id="closeDone" style="width:100%;">Zamknij</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const eventId = params.get('event');
+let event = null;
+let taken = {};
+let selected = new Set();
+let seatsRef = null;
+
+function pl(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  return d.toLocaleDateString('pl-PL', {day:'numeric', month:'long', year:'numeric'});
+}
+function fmt(n){ return Number(n).toLocaleString('pl-PL')+' zł'; }
+
+if(!eventId){
+  document.getElementById('evTitle').textContent = 'Brak wydarzenia';
+  document.getElementById('loadErr').style.display = 'block';
+  document.getElementById('loadErrMsg').textContent = 'Ten link nie wskazuje żadnego konkretnego wydarzenia.';
+} else {
+  fetch('./events.json?v='+Date.now(), {cache:'no-store'}).then(r=>r.json()).then(events=>{
+    event = events.find(e=>e.id===eventId);
+    if(!event){
+      document.getElementById('evTitle').textContent = 'Nie znaleziono wydarzenia';
+      document.getElementById('loadErr').style.display = 'block';
+      document.getElementById('loadErrMsg').textContent = 'Sprawdź, czy link jest poprawny.';
+      return;
+    }
+    document.getElementById('evTitle').textContent = event.title;
+    document.getElementById('evMeta').textContent = pl(event.date) + (event.time?', '+event.time:'') + ' · ' + event.location;
+    if(!event.seating || !event.seating.enabled){
+      document.getElementById('noSeating').style.display = 'block';
+      return;
+    }
+    document.getElementById('seatSection').style.display = 'block';
+    document.getElementById('bar').style.display = 'flex';
+    initFirebase();
+  }).catch(()=>{
+    document.getElementById('evTitle').textContent = 'Błąd wczytywania';
+    document.getElementById('loadErr').style.display = 'block';
+    document.getElementById('loadErrMsg').textContent = 'Nie udało się wczytać events.json.';
+  });
+}
+
+function initFirebase(){
+  if(typeof firebase === 'undefined' || !firebase.apps){
+    document.getElementById('loadErr').style.display = 'block';
+    document.getElementById('loadErrMsg').textContent = 'Firebase nie jest skonfigurowany (uzupełnij firebase-config.js).';
+    return;
+  }
+  firebase.auth().signInAnonymously().catch(()=>{});
+  firebase.auth().onAuthStateChanged(user=>{
+    if(!user) return;
+    seatsRef = firebase.firestore().collection('events').doc(eventId).collection('seats');
+    seatsRef.onSnapshot(snap=>{
+      taken = {};
+      snap.forEach(doc=>{ taken[doc.id] = doc.data(); });
+      selected.forEach(id=>{ if(taken[id]) selected.delete(id); });
+      renderRows();
+      updateBar();
+    }, err=>{
+      document.getElementById('loadErrMsg').textContent = 'Błąd połączenia z Firestore: ' + err.message;
+      document.getElementById('loadErr').style.display = 'block';
+    });
+  });
+}
+
+function seatId(row,n){ return row+'-'+n; }
+function priceFor(row){ return (event.seating.vipRows||[]).includes(row) ? event.seating.priceVip : event.seating.priceStd; }
+
+function renderRows(){
+  const wrap = document.getElementById('rows');
+  wrap.innerHTML = '';
+  const rows = event.seating.rows || [];
+  const perRow = event.seating.seatsPerRow || 10;
+  rows.forEach(row=>{
+    const rowEl = document.createElement('div'); rowEl.className = 'row';
+    const label = document.createElement('div'); label.className = 'row-label'; label.textContent = row;
+    const seatsEl = document.createElement('div'); seatsEl.className = 'seats';
+    for(let n=1;n<=perRow;n++){
+      const id = seatId(row,n);
+      const btn = document.createElement('button');
+      btn.className = 'seat' + ((event.seating.vipRows||[]).includes(row) ? ' vip' : '');
+      btn.textContent = n;
+      btn.setAttribute('aria-label', 'Rząd '+row+', miejsce '+n);
+      if(taken[id]) btn.disabled = true;
+      if(selected.has(id)) btn.classList.add('selected');
+      btn.addEventListener('click', ()=>toggleSeat(id));
+      seatsEl.appendChild(btn);
+    }
+    rowEl.appendChild(label); rowEl.appendChild(seatsEl);
+    wrap.appendChild(rowEl);
+  });
+}
+
+function toggleSeat(id){
+  if(taken[id]) return;
+  if(selected.has(id)) selected.delete(id);
+  else { if(selected.size >= 8) return; selected.add(id); }
+  renderRows(); updateBar();
+}
+
+function total(){ let s=0; selected.forEach(id=>{ s += priceFor(id.split('-')[0]); }); return s; }
+
+function updateBar(){
+  const info = document.getElementById('barInfo');
+  const btn = document.getElementById('openConfirm');
+  if(selected.size === 0){ info.textContent = 'Wybierz miejsca, aby kontynuować'; btn.disabled = true; }
+  else { info.innerHTML = selected.size+' '+(selected.size===1?'miejsce':'miejsca')+' — <b>'+fmt(total())+'</b>'; btn.disabled = false; }
+}
+
+document.getElementById('openConfirm').addEventListener('click', ()=>{
+  document.getElementById('confirmSummary').textContent = Array.from(selected).join(', ') + ' · razem ' + fmt(total());
+  document.getElementById('confirmErr').style.display = 'none';
+  document.getElementById('confirmOverlay').classList.add('open');
+});
+document.getElementById('cancelConfirm').addEventListener('click', ()=>document.getElementById('confirmOverlay').classList.remove('open'));
+
+document.getElementById('confirmForm').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const name = document.getElementById('fName').value.trim();
+  const email = document.getElementById('fEmail').value.trim();
+  const errEl = document.getElementById('confirmErr');
+  const btn = document.getElementById('submitConfirm');
+  btn.disabled = true; btn.textContent = 'Zapisywanie…';
+  try{
+    const batch = firebase.firestore().batch();
+    const ids = Array.from(selected);
+    ids.forEach(id=>{
+      batch.set(seatsRef.doc(id), {
+        name, email,
+        tier: (event.seating.vipRows||[]).includes(id.split('-')[0]) ? 'vip' : 'std',
+        at: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    document.getElementById('confirmOverlay').classList.remove('open');
+    document.getElementById('doneSeats').innerHTML = ids.map(id=>'<span>'+id+'</span>').join('');
+    document.getElementById('doneOverlay').classList.add('open');
+    selected.clear();
+  } catch(err){
+    errEl.textContent = 'Nie udało się zapisać — któreś z wybranych miejsc mogło zostać właśnie zajęte. Wybierz inne.';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'Potwierdź rezerwację';
+});
+
+document.getElementById('closeDone').addEventListener('click', ()=>{
+  document.getElementById('doneOverlay').classList.remove('open');
+  updateBar();
+});
+</script>
+</body>
+</html>

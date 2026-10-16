@@ -6,7 +6,7 @@
 <title>Afisz — panel administratora</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -71,6 +71,22 @@
         <div class="field"><label>Kategoria</label><input id="fTag" placeholder="Koncert"></div>
       </div>
       <div class="field"><label>Opis</label><textarea id="fDesc" rows="3"></textarea></div>
+
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); margin-bottom:14px;">
+        <input type="checkbox" id="fSeatingOn" style="width:auto;"> włącz rezerwację miejsc dla tego wydarzenia
+      </label>
+      <div id="seatingFields" style="display:none; border:1px solid var(--line); border-radius:6px; padding:16px; margin-bottom:16px;">
+        <div class="field"><label>Rzędy (litery oddzielone przecinkiem)</label><input id="fRows" placeholder="A,B,C,D,E,F"></div>
+        <div class="grid2">
+          <div class="field"><label>Miejsc w rzędzie</label><input type="number" id="fSeatsPerRow" placeholder="10"></div>
+          <div class="field"><label>Rzędy VIP</label><input id="fVipRows" placeholder="A,B"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Cena standard (zł)</label><input type="number" id="fPriceStd" placeholder="120"></div>
+          <div class="field"><label>Cena VIP (zł)</label><input type="number" id="fPriceVip" placeholder="250"></div>
+        </div>
+      </div>
+
       <div class="admin-card-actions">
         <button type="submit" class="btn" id="saveBtn">Zapisz w roboczej liście</button>
         <button type="button" class="btn ghost" id="cancelEdit" style="display:none;">Anuluj edycję</button>
@@ -180,6 +196,12 @@ function render(){
   ).join('') : '<p class="empty">Brak wydarzeń. Dodaj pierwsze powyżej.</p>';
 }
 
+document.getElementById('fSeatingOn').addEventListener('change', e=>{
+  document.getElementById('seatingFields').style.display = e.target.checked ? 'block' : 'none';
+});
+
+function csvList(str){ return str.split(',').map(s=>s.trim()).filter(Boolean); }
+
 document.getElementById('form').addEventListener('submit', e=>{
   e.preventDefault();
   const id = document.getElementById('editId').value;
@@ -190,7 +212,15 @@ document.getElementById('form').addEventListener('submit', e=>{
     location: document.getElementById('fLocation').value.trim(),
     price: document.getElementById('fPrice').value.trim(),
     tag: document.getElementById('fTag').value.trim(),
-    description: document.getElementById('fDesc').value.trim()
+    description: document.getElementById('fDesc').value.trim(),
+    seating: document.getElementById('fSeatingOn').checked ? {
+      enabled: true,
+      rows: csvList(document.getElementById('fRows').value),
+      seatsPerRow: Number(document.getElementById('fSeatsPerRow').value) || 10,
+      vipRows: csvList(document.getElementById('fVipRows').value),
+      priceStd: Number(document.getElementById('fPriceStd').value) || 0,
+      priceVip: Number(document.getElementById('fPriceVip').value) || 0
+    } : { enabled: false }
   };
   if(id){
     const idx = events.findIndex(ev=>ev.id===id);
@@ -213,6 +243,14 @@ function editEvent(id){
   document.getElementById('fPrice').value = ev.price||'';
   document.getElementById('fTag').value = ev.tag||'';
   document.getElementById('fDesc').value = ev.description||'';
+  const s = ev.seating || {};
+  document.getElementById('fSeatingOn').checked = !!s.enabled;
+  document.getElementById('seatingFields').style.display = s.enabled ? 'block' : 'none';
+  document.getElementById('fRows').value = (s.rows||[]).join(',');
+  document.getElementById('fSeatsPerRow').value = s.seatsPerRow||'';
+  document.getElementById('fVipRows').value = (s.vipRows||[]).join(',');
+  document.getElementById('fPriceStd').value = s.priceStd||'';
+  document.getElementById('fPriceVip').value = s.priceVip||'';
   document.getElementById('formTitle').textContent = 'Edytuj wydarzenie';
   document.getElementById('cancelEdit').style.display = 'inline-block';
   window.scrollTo({top:0, behavior:'smooth'});
@@ -225,6 +263,7 @@ function deleteEvent(id){
 function resetForm(){
   document.getElementById('form').reset();
   document.getElementById('editId').value = '';
+  document.getElementById('seatingFields').style.display = 'none';
   document.getElementById('formTitle').textContent = 'Nowe wydarzenie';
   document.getElementById('cancelEdit').style.display = 'none';
 }

@@ -6,7 +6,7 @@
 <title>Afisz — wydarzenia</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,6 +14,7 @@
   <header class="hero">
     <p class="eyebrow">Afisz</p>
     <h1>Wydarzenia bez zbędnego szumu</h1>
+    <div class="bar-rule"></div>
     <p class="lede">Kalendarz kameralnych wieczorów, koncertów i spotkań. Lista aktualizowana ręcznie przez organizatora.</p>
   </header>
 
@@ -38,17 +39,26 @@ function pl(dateStr){
   return d.toLocaleDateString('pl-PL', {day:'numeric', month:'long', year:'numeric'});
 }
 
+const MONTHS_SHORT = ['sty','lut','mar','kwi','maj','cze','lip','sie','wrz','paź','lis','gru'];
+
 function card(ev){
-  return '<div class="card">'
-    + '<div class="row"><span class="title">'+esc(ev.title)+'</span><span class="when">'+pl(ev.date)+(ev.time?', '+esc(ev.time):'')+'</span></div>'
+  const d = new Date(ev.date+'T00:00:00');
+  const seatLink = (ev.seating && ev.seating.enabled)
+    ? '<div style="margin-top:10px;"><a class="btn" style="display:inline-block; text-decoration:none;" href="rezerwacja.html?event='+encodeURIComponent(ev.id)+'">Zarezerwuj miejsca</a></div>'
+    : '';
+  return '<div class="card ticket">'
+    + '<div class="datebox"><span class="day">'+d.getDate()+'</span><span class="month">'+MONTHS_SHORT[d.getMonth()]+'</span></div>'
+    + '<div class="content">'
+    + '<div class="row"><span class="title">'+esc(ev.title)+'</span><span class="when">'+(ev.time?esc(ev.time):'')+'</span></div>'
     + '<div class="meta">'+esc(ev.location)+(ev.price?' · '+esc(ev.price):'')+'</div>'
     + (ev.description?'<div class="desc">'+esc(ev.description)+'</div>':'')
     + (ev.tag?'<span class="tag">'+esc(ev.tag)+'</span>':'')
-    + '</div>';
+    + seatLink
+    + '</div></div>';
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-fetch('./events.json').then(r=>r.json()).then(events=>{
+fetch('./events.json?v=' + Date.now(), { cache: 'no-store' }).then(r=>r.json()).then(events=>{
   const today = new Date(); today.setHours(0,0,0,0);
   events.sort((a,b)=> a.date.localeCompare(b.date));
   const upcoming = events.filter(e=> new Date(e.date+'T00:00:00') >= today);
