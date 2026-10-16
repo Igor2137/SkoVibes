@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Afisz — wydarzenia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <p class="eyebrow">Afisz</p>
+    <h1>Wydarzenia bez zbędnego szumu</h1>
+    <p class="lede">Kalendarz kameralnych wieczorów, koncertów i spotkań. Lista aktualizowana ręcznie przez organizatora.</p>
+  </header>
+
+  <section>
+    <h2>Nadchodzące</h2>
+    <div id="upcoming"></div>
+  </section>
+
+  <section id="pastSection" style="display:none; border-top:1px solid var(--line);">
+    <h2>Minione</h2>
+    <div id="past"></div>
+  </section>
+
+  <footer>
+    Prowadzi i aktualizuje <a href="admin.html">organizator</a>.
+  </footer>
+</div>
+
+<script>
+function pl(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  return d.toLocaleDateString('pl-PL', {day:'numeric', month:'long', year:'numeric'});
+}
+
+function card(ev){
+  return '<div class="card">'
+    + '<div class="row"><span class="title">'+esc(ev.title)+'</span><span class="when">'+pl(ev.date)+(ev.time?', '+esc(ev.time):'')+'</span></div>'
+    + '<div class="meta">'+esc(ev.location)+(ev.price?' · '+esc(ev.price):'')+'</div>'
+    + (ev.description?'<div class="desc">'+esc(ev.description)+'</div>':'')
+    + (ev.tag?'<span class="tag">'+esc(ev.tag)+'</span>':'')
+    + '</div>';
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+fetch('./events.json').then(r=>r.json()).then(events=>{
+  const today = new Date(); today.setHours(0,0,0,0);
+  events.sort((a,b)=> a.date.localeCompare(b.date));
+  const upcoming = events.filter(e=> new Date(e.date+'T00:00:00') >= today);
+  const past = events.filter(e=> new Date(e.date+'T00:00:00') < today).reverse();
+
+  const upEl = document.getElementById('upcoming');
+  upEl.innerHTML = upcoming.length ? upcoming.map(card).join('') : '<p class="empty">Brak zaplanowanych wydarzeń — wróć niedługo.</p>';
+
+  if(past.length){
+    document.getElementById('pastSection').style.display = 'block';
+    document.getElementById('past').innerHTML = past.map(card).join('');
+  }
+}).catch(()=>{
+  document.getElementById('upcoming').innerHTML = '<p class="empty">Nie udało się wczytać listy wydarzeń (events.json).</p>';
+});
+</script>
+</body>
+</html>

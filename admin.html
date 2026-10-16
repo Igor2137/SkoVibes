@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Afisz — panel administratora</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="gate" id="connectGate">
+  <p class="eyebrow">Afisz — panel administratora</p>
+  <h1 style="font-size:28px;">Połącz z repozytorium</h1>
+  <div class="field">
+    <label>Repozytorium (właściciel/nazwa)</label>
+    <input id="cRepo" placeholder="np. jkowalski/afisz">
+  </div>
+  <div class="field">
+    <label>Gałąź</label>
+    <input id="cBranch" value="main">
+  </div>
+  <div class="field">
+    <label>Token dostępu (Personal Access Token)</label>
+    <input id="cToken" type="password" placeholder="github_pat_...">
+  </div>
+  <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); margin-bottom:16px;">
+    <input type="checkbox" id="cRemember" style="width:auto;"> zapamiętaj tylko na czas tej karty przeglądarki
+  </label>
+  <button class="btn" id="connectBtn">Połącz</button>
+  <p class="notice" id="connectErr" style="display:none; border-color:var(--accent); color:var(--accent);"></p>
+  <p class="notice">
+    Token utwórz na <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> jako
+    <b>fine-grained token</b>, ograniczony tylko do tego jednego repozytorium, z uprawnieniem <b>Contents: Read and write</b>,
+    z krótkim terminem ważności. Token trzymany jest wyłącznie w tej przeglądarce (nigdzie nie jest wysyłany poza api.github.com)
+    i nigdy nie trafia do pliku na GitHub.
+  </p>
+</div>
+
+<div class="wrap" id="panel" style="display:none;">
+  <header class="hero">
+    <p class="eyebrow">Afisz</p>
+    <h1>Panel administratora</h1>
+    <p class="lede" id="statusLine">Połączono.</p>
+  </header>
+
+  <section>
+    <div class="toolbar">
+      <button class="btn" id="publishBtn">Publikuj na GitHub</button>
+      <button class="btn ghost" id="exportBtn">Pobierz kopię JSON</button>
+      <label class="btn ghost" style="cursor:pointer;">Wczytaj plik
+        <input type="file" id="importFile" accept="application/json" style="display:none;">
+      </label>
+      <button class="btn ghost" id="disconnectBtn">Rozłącz</button>
+    </div>
+    <div class="notice" id="publishMsg" style="display:none;"></div>
+
+    <h2 id="formTitle">Nowe wydarzenie</h2>
+    <form id="form">
+      <input type="hidden" id="editId">
+      <div class="field"><label>Tytuł</label><input required id="fTitle"></div>
+      <div class="grid2">
+        <div class="field"><label>Data</label><input required type="date" id="fDate"></div>
+        <div class="field"><label>Godzina</label><input id="fTime" placeholder="21:00"></div>
+      </div>
+      <div class="field"><label>Miejsce</label><input required id="fLocation"></div>
+      <div class="grid2">
+        <div class="field"><label>Cena</label><input id="fPrice" placeholder="od 120 zł"></div>
+        <div class="field"><label>Kategoria</label><input id="fTag" placeholder="Koncert"></div>
+      </div>
+      <div class="field"><label>Opis</label><textarea id="fDesc" rows="3"></textarea></div>
+      <div class="admin-card-actions">
+        <button type="submit" class="btn" id="saveBtn">Zapisz w roboczej liście</button>
+        <button type="button" class="btn ghost" id="cancelEdit" style="display:none;">Anuluj edycję</button>
+      </div>
+    </form>
+    <p class="notice">Zmiany poniżej są na razie robocze (tylko w tej karcie). Kliknij „Publikuj na GitHub", żeby zapisać je jako commit w repozytorium — wtedy strona główna od razu je pokaże.</p>
+  </section>
+
+  <section style="border-top:1px solid var(--line);">
+    <h2>Lista wydarzeń</h2>
+    <div id="list"></div>
+  </section>
+</div>
+
+<script>
+let owner, repo, branch, token, currentSha = null;
+let events = [];
+
+function b64EncodeUnicode(str){
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (m,p1)=>String.fromCharCode('0x'+p1)));
+}
+function b64DecodeUnicode(str){
+  return decodeURIComponent(atob(str).split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+}
+function ghHeaders(extra){
+  return Object.assign({ Authorization: 'Bearer '+token, Accept: 'application/vnd.github+json' }, extra||{});
+}
+function apiUrl(){ return `https://api.github.com/repos/${owner}/${repo}/contents/events.json`; }
+
+async function ghFetchFile(){
+  const res = await fetch(apiUrl()+`?ref=${encodeURIComponent(branch)}`, { headers: ghHeaders() });
+  if(res.status === 404){ currentSha = null; events = []; return; }
+  if(!res.ok){ throw new Error((await res.json().catch(()=>({})) ).message || ('Błąd '+res.status)); }
+  const data = await res.json();
+  currentSha = data.sha;
+  events = JSON.parse(b64DecodeUnicode(data.content.replace(/\n/g,'')));
+}
+
+async function ghPublish(message){
+  const content = b64EncodeUnicode(JSON.stringify(events, null, 2));
+  const body = { message, content, branch };
+  if(currentSha) body.sha = currentSha;
+  const res = await fetch(apiUrl(), { method:'PUT', headers: ghHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body) });
+  if(!res.ok){ const err = await res.json().catch(()=>({})); throw new Error(err.message || ('Błąd '+res.status)); }
+  const data = await res.json();
+  currentSha = data.content.sha;
+}
+
+document.getElementById('connectBtn').addEventListener('click', async ()=>{
+  const repoField = document.getElementById('cRepo').value.trim();
+  const [o,r] = repoField.split('/');
+  branch = document.getElementById('cBranch').value.trim() || 'main';
+  token = document.getElementById('cToken').value.trim();
+  const errEl = document.getElementById('connectErr');
+  errEl.style.display = 'none';
+  if(!o || !r || !token){
+    errEl.textContent = 'Podaj repozytorium w formacie właściciel/nazwa oraz token.';
+    errEl.style.display = 'block';
+    return;
+  }
+  owner = o; repo = r;
+  try{
+    await ghFetchFile();
+    if(document.getElementById('cRemember').checked){
+      sessionStorage.setItem('afisz_admin_session', JSON.stringify({owner,repo,branch,token}));
+    }
+    document.getElementById('connectGate').style.display = 'none';
+    document.getElementById('panel').style.display = 'block';
+    document.getElementById('statusLine').textContent = `Połączono z ${owner}/${repo} (${branch}).`;
+    render();
+  } catch(e){
+    errEl.textContent = 'Nie udało się połączyć: ' + e.message;
+    errEl.style.display = 'block';
+  }
+});
+
+(function tryRestoreSession(){
+  const saved = sessionStorage.getItem('afisz_admin_session');
+  if(!saved) return;
+  const s = JSON.parse(saved);
+  document.getElementById('cRepo').value = s.owner+'/'+s.repo;
+  document.getElementById('cBranch').value = s.branch;
+  document.getElementById('cToken').value = s.token;
+  document.getElementById('cRemember').checked = true;
+})();
+
+document.getElementById('disconnectBtn').addEventListener('click', ()=>{
+  sessionStorage.removeItem('afisz_admin_session');
+  location.reload();
+});
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function slug(title,date){ return (title+'-'+date).toLowerCase().normalize('NFD').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,''); }
+
+function render(){
+  events.sort((a,b)=> a.date.localeCompare(b.date));
+  const list = document.getElementById('list');
+  list.innerHTML = events.length ? events.map(ev=>
+    '<div class="card">'
+    + '<div class="row"><span class="title">'+esc(ev.title)+'</span><span class="when">'+esc(ev.date)+(ev.time?', '+esc(ev.time):'')+'</span></div>'
+    + '<div class="meta">'+esc(ev.location)+(ev.price?' · '+esc(ev.price):'')+'</div>'
+    + (ev.description?'<div class="desc">'+esc(ev.description)+'</div>':'')
+    + '<div class="admin-card-actions">'
+    + '<button class="btn ghost" onclick="editEvent(\''+ev.id+'\')">Edytuj</button>'
+    + '<button class="btn danger" onclick="deleteEvent(\''+ev.id+'\')">Usuń</button>'
+    + '</div></div>'
+  ).join('') : '<p class="empty">Brak wydarzeń. Dodaj pierwsze powyżej.</p>';
+}
+
+document.getElementById('form').addEventListener('submit', e=>{
+  e.preventDefault();
+  const id = document.getElementById('editId').value;
+  const data = {
+    title: document.getElementById('fTitle').value.trim(),
+    date: document.getElementById('fDate').value,
+    time: document.getElementById('fTime').value.trim(),
+    location: document.getElementById('fLocation').value.trim(),
+    price: document.getElementById('fPrice').value.trim(),
+    tag: document.getElementById('fTag').value.trim(),
+    description: document.getElementById('fDesc').value.trim()
+  };
+  if(id){
+    const idx = events.findIndex(ev=>ev.id===id);
+    events[idx] = Object.assign({}, events[idx], data);
+  } else {
+    data.id = slug(data.title, data.date) || ('ev-'+Date.now());
+    events.push(data);
+  }
+  render(); resetForm();
+});
+
+function editEvent(id){
+  const ev = events.find(e=>e.id===id);
+  if(!ev) return;
+  document.getElementById('editId').value = ev.id;
+  document.getElementById('fTitle').value = ev.title||'';
+  document.getElementById('fDate').value = ev.date||'';
+  document.getElementById('fTime').value = ev.time||'';
+  document.getElementById('fLocation').value = ev.location||'';
+  document.getElementById('fPrice').value = ev.price||'';
+  document.getElementById('fTag').value = ev.tag||'';
+  document.getElementById('fDesc').value = ev.description||'';
+  document.getElementById('formTitle').textContent = 'Edytuj wydarzenie';
+  document.getElementById('cancelEdit').style.display = 'inline-block';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function deleteEvent(id){
+  if(!confirm('Usunąć to wydarzenie z roboczej listy?')) return;
+  events = events.filter(e=>e.id!==id);
+  render();
+}
+function resetForm(){
+  document.getElementById('form').reset();
+  document.getElementById('editId').value = '';
+  document.getElementById('formTitle').textContent = 'Nowe wydarzenie';
+  document.getElementById('cancelEdit').style.display = 'none';
+}
+document.getElementById('cancelEdit').addEventListener('click', resetForm);
+
+document.getElementById('publishBtn').addEventListener('click', async ()=>{
+  const msg = prompt('Opis commita:', 'Aktualizacja listy wydarzeń');
+  if(msg === null) return;
+  const btn = document.getElementById('publishBtn');
+  const msgEl = document.getElementById('publishMsg');
+  btn.disabled = true; btn.textContent = 'Publikowanie…';
+  try{
+    await ghPublish(msg || 'Aktualizacja listy wydarzeń');
+    msgEl.style.display = 'block';
+    msgEl.style.borderColor = 'var(--accent-soft)';
+    msgEl.textContent = 'Opublikowano ✓ — zmiany są już w repozytorium (' + new Date().toLocaleTimeString('pl-PL') + ').';
+  } catch(e){
+    msgEl.style.display = 'block';
+    msgEl.style.borderColor = 'var(--accent)';
+    msgEl.textContent = 'Błąd publikacji: ' + e.message + '. Jeśli ktoś inny zmienił plik w międzyczasie, kliknij „Rozłącz" i połącz się ponownie, żeby pobrać świeżą wersję.';
+  }
+  btn.disabled = false; btn.textContent = 'Publikuj na GitHub';
+});
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(events, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'events.json';
+  a.click();
+});
+document.getElementById('importFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{ events = JSON.parse(reader.result); render(); }
+    catch(err){ alert('Nieprawidłowy plik JSON.'); }
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
