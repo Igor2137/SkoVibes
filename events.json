@@ -20,8 +20,8 @@
       "vipRows": [
         "A"
       ],
-      "priceStd": 0,
-      "priceVip": 0
+      "priceStd": 120,
+      "priceVip": 250
     }
   }
 ]
