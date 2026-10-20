@@ -7,6 +7,14 @@
     "price": "99zł",
     "tag": "Impreza",
     "description": "",
-    "id": "najstraszniejsza-impreza-w-mies-cie-2026-10-31"
+    "id": "najstraszniejsza-impreza-w-mies-cie-2026-10-31",
+    "seating": {
+      "enabled": true,
+      "rows": [],
+      "seatsPerRow": 10,
+      "vipRows": [],
+      "priceStd": 0,
+      "priceVip": 0
+    }
   }
 ]
