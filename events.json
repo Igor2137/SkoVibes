@@ -10,9 +10,16 @@
     "id": "najstraszniejsza-impreza-w-mies-cie-2026-10-31",
     "seating": {
       "enabled": true,
-      "rows": [],
-      "seatsPerRow": 10,
-      "vipRows": [],
+      "rows": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "seatsPerRow": 20,
+      "vipRows": [
+        "A"
+      ],
       "priceStd": 0,
       "priceVip": 0
     }
